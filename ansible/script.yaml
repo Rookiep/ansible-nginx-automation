@@ -1,0 +1,60 @@
+---
+- name: Deploy resources, manage HPA and manually scale Nginx deployment
+  hosts: localhost
+  gather_facts: no
+
+  vars_prompt:
+    - name: manual_replicas
+      prompt: "Enter number of replicas for manual scaling (e.g., 40):"
+      private: no
+
+  vars:
+    deployment_file: "../k8s/nginx-deployment.yaml"
+    service_file: "../k8s/nginx-service.yaml"
+    hpa_file: "../k8s/hpa.yaml"
+    deployment_name: "nginx-deployment"
+    hpa_name: "nginx-hpa"       # ✅ FIXED — Your actual HPA name
+    namespace: "default"
+
+  tasks:
+    #################################################################
+    # 1. Check if HPA exists
+    #################################################################
+    - name: Check if HPA exists in the cluster
+      command: kubectl get hpa {{ hpa_name }} -n {{ namespace }}
+      register: hpa_check
+      ignore_errors: yes
+
+    - name: Print HPA existence result
+      debug:
+        msg: "HPA exists: {{ hpa_check.rc == 0 }}"
+
+    #################################################################
+    # 2. Disable/Delete HPA
+    #################################################################
+    - name: Delete HPA if it exists
+      command: kubectl delete hpa {{ hpa_name }} -n {{ namespace }}
+      when: hpa_check.rc == 0
+      register: hpa_delete_output
+      ignore_errors: yes
+
+    - name: Show HPA deletion result
+      debug:
+        msg: >-
+          {% if hpa_check.rc == 0 %}
+            HPA existed and was deleted successfully:
+            {{ hpa_delete_output.stdout | default('HPA deletion executed') }}
+          {% else %}
+            No HPA existed, so nothing was deleted.
+          {% endif %}
+
+    #################################################################
+    # 3. Manual Scaling
+    #################################################################
+    - name: Manually scale deployment
+      command: kubectl scale deployment {{ deployment_name }} --replicas={{ manual_replicas }} -n {{ namespace }}
+      register: manual_scale_output
+
+    - name: Show manual scaling result
+      debug:
+        msg: "{{ manual_scale_output.stdout }}"
